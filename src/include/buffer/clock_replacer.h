@@ -18,9 +18,8 @@
 
 #include "buffer/replacer.h"
 #include "common/config.h"
-
+using std::vector;
 namespace bustub {
-
 /**
  * ClockReplacer implements the clock replacement policy, which approximates the Least Recently Used policy.
  */
@@ -47,6 +46,18 @@ class ClockReplacer : public Replacer {
 
  private:
   // TODO(student): implement me!
+
+  // step the clock hand to the next position
+  void Step() {
+    clock_hand_ = (clock_hand_+1) % (int)pages_.size();
+  }
+
+  vector<frame_id_t> pages_;
+  vector<bool> valid_;
+  vector<bool> referenced_;
+  int clock_hand_ = 0;
+  size_t size_ = 0;
+  size_t valid_num_ = 0;
 };
 
 }  // namespace bustub
