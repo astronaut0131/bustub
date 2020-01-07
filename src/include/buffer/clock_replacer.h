@@ -49,14 +49,13 @@ class ClockReplacer : public Replacer {
 
   // step the clock hand to the next position
   void Step() {
-    clock_hand_ = (clock_hand_+1) % (int)pages_.size();
+    clock_hand_ = (clock_hand_+1) % num_pages_;
   }
 
-  vector<frame_id_t> pages_;
+  int num_pages_;
   vector<bool> valid_;
   vector<bool> referenced_;
   int clock_hand_ = 0;
-  size_t size_ = 0;
   size_t valid_num_ = 0;
 };
 

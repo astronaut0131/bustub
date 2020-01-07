@@ -20,7 +20,7 @@ namespace bustub {
 using std::fill;
 
 ClockReplacer::ClockReplacer(size_t num_pages) {
-  pages_.resize(num_pages);
+  num_pages_ = static_cast<int>(num_pages);
   valid_.resize(num_pages);
   referenced_.resize(num_pages);
   fill(valid_.begin(), valid_.end(), false);
@@ -37,8 +37,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
       // victim page
       valid_[clock_hand_] = false;
       valid_num_--;
-      size_--;
-      *frame_id = pages_[clock_hand_];
+      *frame_id = clock_hand_;
       Step();
       return true;
     } else if (valid_[clock_hand_]) {
@@ -49,40 +48,22 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
 }
 
 void ClockReplacer::Pin(frame_id_t frame_id) {
-  auto it = find(pages_.begin(), pages_.end(), frame_id);
-  int index = it - pages_.begin();
-  if (it != pages_.end() && valid_[index] && !referenced_[index]) {
-    referenced_[index] = true;
-    size_--;
+  if (frame_id >= num_pages_ || !valid_[frame_id]) return;
+  if (!referenced_[frame_id]) {
+    referenced_[frame_id] = true;
+    valid_[frame_id] = false;
+    valid_num_--;
   }
 }
 
 void ClockReplacer::Unpin(frame_id_t frame_id) {
-  auto it = find(pages_.begin(), pages_.end(), frame_id);
-  int index = it - pages_.begin();
-  if (it == pages_.end()) {
-    // find an invalid page_id position to put the new page_id in
-    for (int i = 0; i < (int)valid_.size(); i++) {
-      if (!valid_[i]) {
-        pages_[i] = frame_id;
-        valid_[i] = true;
-        valid_num_++;
-        size_++;
-        return;
-      }
-    }
-  } else if (!valid_[index]) {
-    // this page_id is once made invalid
-    valid_[index] = true;
+  if (frame_id >= num_pages_) return;
+  if (!valid_[frame_id]) {
+    valid_[frame_id] = true;
     valid_num_++;
-    size_++;
-  } else if (referenced_[index]) {
-    // turn this page_id from pinned to unpinned
-    size_++;
   }
-  // do nothing if this page_id is in pages_ and it's both valid and already unpinned
 }
 
-size_t ClockReplacer::Size() { return size_; }
+size_t ClockReplacer::Size() { return valid_num_; }
 
 }  // namespace bustub
