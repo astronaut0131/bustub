@@ -48,7 +48,7 @@ class ClockReplacer : public Replacer {
   // TODO(student): implement me!
 
   // step the clock hand to the next position
-  void Step() {
+  inline void Step() {
     clock_hand_ = (clock_hand_+1) % num_pages_;
   }
 
