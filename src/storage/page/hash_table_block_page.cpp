@@ -17,30 +17,38 @@ namespace bustub {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 KeyType HASH_TABLE_BLOCK_TYPE::KeyAt(slot_offset_t bucket_ind) const {
-  return {};
+  return { array_[bucket_ind].first };
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 ValueType HASH_TABLE_BLOCK_TYPE::ValueAt(slot_offset_t bucket_ind) const {
-  return {};
+  return { array_[bucket_ind].second };
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BLOCK_TYPE::Insert(slot_offset_t bucket_ind, const KeyType &key, const ValueType &value) {
-  return false;
+  if (occupied_[bucket_ind].exchange(1)) {
+    return false;
+  }
+  array_[bucket_ind] = std::make_pair(key,value);
+  readable_[bucket_ind] = 1;
+  return true;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_BLOCK_TYPE::Remove(slot_offset_t bucket_ind) {}
+void HASH_TABLE_BLOCK_TYPE::Remove(slot_offset_t bucket_ind) {
+  // just mark it as a tombstone
+  readable_[bucket_ind] = 0;
+}
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BLOCK_TYPE::IsOccupied(slot_offset_t bucket_ind) const {
-  return false;
+  return occupied_[bucket_ind].load();
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BLOCK_TYPE::IsReadable(slot_offset_t bucket_ind) const {
-  return false;
+  return readable_[bucket_ind].load();
 }
 
 // DO NOT REMOVE ANYTHING BELOW THIS LINE

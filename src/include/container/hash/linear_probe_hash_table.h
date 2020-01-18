@@ -87,6 +87,48 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
   size_t GetSize();
 
  private:
+  // helper function
+  HashTableHeaderPage* GetTableHeaderPtr() {
+    return reinterpret_cast<HashTableHeaderPage*> (buffer_pool_manager_->FetchPage(header_page_id_));
+  }
+  HashTableBlockPage<KeyType,ValueType,KeyComparator>* GetTableBlockPtr(slot_offset_t page_offset) {
+    page_id_t block_page_id = GetTableHeaderPtr()->GetBlockPageId(page_offset);
+    return reinterpret_cast<HashTableBlockPage<KeyType,ValueType,KeyComparator>*> (buffer_pool_manager_->FetchPage(block_page_id));
+  }
+
+  std::pair<slot_offset_t,slot_offset_t> GetOffset(const KeyType& key) {
+    auto hash_val = hash_fn_.GetHash(key);
+    hash_val %= GetSize();
+    return std::make_pair(hash_val/BLOCK_ARRAY_SIZE,hash_val%BLOCK_ARRAY_SIZE);
+  }
+
+  std::pair<slot_offset_t,slot_offset_t> NextBucket(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
+    slot_offset_t page_offset = offset_pair.first;
+    slot_offset_t inblock_offset = offset_pair.second;
+    if (inblock_offset < BLOCK_ARRAY_SIZE) return std::make_pair(page_offset,inblock_offset+1);
+    else if (page_offset < GetTableHeaderPtr()->GetSize()) return std::make_pair(page_offset+1,0);
+    else return std::make_pair(0,0);
+  }
+
+  std::pair<bool,bool> GetStatus(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
+    auto block_ptr = GetTableBlockPtr(offset_pair.first);
+    return std::make_pair(block_ptr->IsOccupied(offset_pair.second),block_ptr->IsReadable(offset_pair.second));
+  }
+
+  std::pair<KeyType,ValueType> KeyValueAt(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
+    auto block_ptr = GetTableBlockPtr(offset_pair.first);
+    return std::make_pair(block_ptr->KeyAt(offset_pair.second),block_ptr->ValueAt(offset_pair.second));
+  }
+
+  bool WriteKeyValue(const std::pair<slot_offset_t,slot_offset_t>& offset_pair,const KeyType& key, const ValueType& value) {
+    auto block_ptr = GetTableBlockPtr(offset_pair.first);
+    return block_ptr->Insert(offset_pair.second,key,value);
+  }
+
+  void RemoveKeyValue(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
+    auto block_ptr = GetTableBlockPtr(offset_pair.first);
+    block_ptr->Remove(offset_pair.second);
+  }
   // member variable
   page_id_t header_page_id_;
   BufferPoolManager *buffer_pool_manager_;
