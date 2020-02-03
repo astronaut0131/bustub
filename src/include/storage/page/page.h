@@ -44,7 +44,8 @@ class Page {
 
   /** @return the pin count of this page */
   inline int GetPinCount() { return pin_count_; }
-
+  /** Sets whether the page is dirty */
+  inline void SetDirty(bool dirty) { is_dirty_ = dirty; }
   /** @return true if the page in memory has been modified from the page on disk, false otherwise */
   inline bool IsDirty() { return is_dirty_; }
 

@@ -90,6 +90,7 @@ class HashTableHeaderPage {
   size_t NumBlocks();
 
  private:
+  inline size_t MaxNumBlocks() { return (PAGE_SIZE - sizeof(HashTableHeaderPage))/ sizeof(page_id_t); }
   __attribute__((unused)) lsn_t lsn_;
   __attribute__((unused)) size_t size_;
   __attribute__((unused)) page_id_t page_id_;

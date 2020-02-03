@@ -30,6 +30,7 @@ ClockReplacer::ClockReplacer(size_t num_pages) {
 ClockReplacer::~ClockReplacer() = default;
 
 bool ClockReplacer::Victim(frame_id_t *frame_id) {
+  std::lock_guard<std::mutex> guard(latch_);
   // no valid page in the clock replacer
   if (valid_num_ == 0) return false;
   while (true) {
@@ -48,6 +49,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
 }
 
 void ClockReplacer::Pin(frame_id_t frame_id) {
+  std::lock_guard<std::mutex> guard(latch_);
   if (frame_id >= num_pages_ || !valid_[frame_id]) return;
   if (!referenced_[frame_id]) {
     referenced_[frame_id] = true;
@@ -57,6 +59,7 @@ void ClockReplacer::Pin(frame_id_t frame_id) {
 }
 
 void ClockReplacer::Unpin(frame_id_t frame_id) {
+  std::lock_guard<std::mutex> guard(latch_);
   if (frame_id >= num_pages_) return;
   if (!valid_[frame_id]) {
     valid_[frame_id] = true;
@@ -64,6 +67,8 @@ void ClockReplacer::Unpin(frame_id_t frame_id) {
   }
 }
 
-size_t ClockReplacer::Size() { return valid_num_; }
-
+size_t ClockReplacer::Size() {
+  std::lock_guard<std::mutex> guard(latch_);
+  return valid_num_;
+}
 }  // namespace bustub

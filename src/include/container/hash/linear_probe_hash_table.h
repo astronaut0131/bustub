@@ -87,48 +87,82 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
   size_t GetSize();
 
  private:
-  // helper function
-  HashTableHeaderPage* GetTableHeaderPtr() {
-    return reinterpret_cast<HashTableHeaderPage*> (buffer_pool_manager_->FetchPage(header_page_id_));
-  }
-  HashTableBlockPage<KeyType,ValueType,KeyComparator>* GetTableBlockPtr(slot_offset_t page_offset) {
-    page_id_t block_page_id = GetTableHeaderPtr()->GetBlockPageId(page_offset);
-    return reinterpret_cast<HashTableBlockPage<KeyType,ValueType,KeyComparator>*> (buffer_pool_manager_->FetchPage(block_page_id));
-  }
+  // helper class for traversing
+  class Cursor {
+   public:
+    DISALLOW_COPY(Cursor);
+    explicit Cursor(HASH_TABLE_TYPE *table_ptr, slot_offset_t block_slot, slot_offset_t in_block_slot,
+                    BufferPoolManager *buffer_pool_manager)
+        : block_slot_(block_slot),
+          in_block_slot_(in_block_slot),
+          origin_block_slot_(block_slot),
+          origin_in_block_slot_(in_block_slot),
+          table_ptr_(table_ptr),
+          buffer_pool_manager_(buffer_pool_manager) {
+      block_page_ = buffer_pool_manager->FetchPage(table_ptr->GetBlockPageId(block_slot));
+      block_ = reinterpret_cast<HASH_TABLE_BLOCK_TYPE*>(block_page_->GetData());
+    }
+    // call it before modifying the page
+    void StartWrite() {
+      block_page_->RUnlatch();
+      block_page_->WLatch();
+    }
+    // call it after modifying the page
+    void EndWrite() {
+      block_page_->SetDirty(true);
+      block_page_->WUnlatch();
+      block_page_->RLatch();
+    }
+    HASH_TABLE_BLOCK_TYPE* operator*() {
+      block_page_->RLatch();
+      return block_;
+    }
+    ~Cursor() {
+      buffer_pool_manager_->UnpinPage(block_page_->GetPageId(),false);
+      block_page_->RUnlatch();
+    }
+    bool IsEnd() {
+      return has_stepped && block_slot_ == origin_block_slot_ && in_block_slot_ == origin_in_block_slot_;
+    }
+    void Step() {
+      has_stepped = true;
+      if (in_block_slot_ < BLOCK_ARRAY_SIZE - 1) {
+        in_block_slot_++;
+      } else {
+        // switch to next block
+        block_slot_++;
+        in_block_slot_ = 0;
+        if (IsEnd()) return;
+        // release the last page
+        block_page_->RUnlatch();
+        buffer_pool_manager_->UnpinPage(block_page_->GetPageId(), false);
+        auto block_page_id = table_ptr_->GetBlockPageId(block_slot_);
+        block_page_ = buffer_pool_manager_->FetchPage(block_page_id);
+        block_page_->RLatch();
+        block_ = reinterpret_cast<HashTableBlockPage<KeyType, ValueType, KeyComparator> *>(block_page_->GetData());
+      }
+    }
+    slot_offset_t GetInBlockSlot() const { return in_block_slot_; }
+    slot_offset_t GetBlockSlot() const { return block_slot_; }
+   private:
+    slot_offset_t block_slot_;
+    slot_offset_t in_block_slot_;
+    slot_offset_t origin_block_slot_;
+    slot_offset_t origin_in_block_slot_;
+    HASH_TABLE_TYPE *table_ptr_;
+    BufferPoolManager *buffer_pool_manager_;
+    Page *block_page_{};
+    HASH_TABLE_BLOCK_TYPE *block_{};
+    bool has_stepped = false;
+  };
+  // helper function;
 
-  std::pair<slot_offset_t,slot_offset_t> GetOffset(const KeyType& key) {
-    auto hash_val = hash_fn_.GetHash(key);
-    hash_val %= GetSize();
-    return std::make_pair(hash_val/BLOCK_ARRAY_SIZE,hash_val%BLOCK_ARRAY_SIZE);
-  }
+  std::pair<slot_offset_t, slot_offset_t> CalculateOffset(const KeyType &key);
 
-  std::pair<slot_offset_t,slot_offset_t> NextBucket(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
-    slot_offset_t page_offset = offset_pair.first;
-    slot_offset_t inblock_offset = offset_pair.second;
-    if (inblock_offset < BLOCK_ARRAY_SIZE) return std::make_pair(page_offset,inblock_offset+1);
-    else if (page_offset < GetTableHeaderPtr()->GetSize()) return std::make_pair(page_offset+1,0);
-    else return std::make_pair(0,0);
-  }
+  // wrapper of header' GetBlockPageId
+  // protected by table_latch_
+  page_id_t GetBlockPageId(slot_offset_t index);
 
-  std::pair<bool,bool> GetStatus(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
-    auto block_ptr = GetTableBlockPtr(offset_pair.first);
-    return std::make_pair(block_ptr->IsOccupied(offset_pair.second),block_ptr->IsReadable(offset_pair.second));
-  }
-
-  std::pair<KeyType,ValueType> KeyValueAt(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
-    auto block_ptr = GetTableBlockPtr(offset_pair.first);
-    return std::make_pair(block_ptr->KeyAt(offset_pair.second),block_ptr->ValueAt(offset_pair.second));
-  }
-
-  bool WriteKeyValue(const std::pair<slot_offset_t,slot_offset_t>& offset_pair,const KeyType& key, const ValueType& value) {
-    auto block_ptr = GetTableBlockPtr(offset_pair.first);
-    return block_ptr->Insert(offset_pair.second,key,value);
-  }
-
-  void RemoveKeyValue(const std::pair<slot_offset_t,slot_offset_t>& offset_pair) {
-    auto block_ptr = GetTableBlockPtr(offset_pair.first);
-    block_ptr->Remove(offset_pair.second);
-  }
   // member variable
   page_id_t header_page_id_;
   BufferPoolManager *buffer_pool_manager_;
@@ -139,6 +173,7 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
 
   // Hash function
   HashFunction<KeyType> hash_fn_;
+  HashTableHeaderPage *header_;
 };
 
 }  // namespace bustub
