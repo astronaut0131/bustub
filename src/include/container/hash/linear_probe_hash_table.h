@@ -92,14 +92,19 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
    public:
     DISALLOW_COPY(Cursor);
     explicit Cursor(HASH_TABLE_TYPE *table_ptr, slot_offset_t block_slot, slot_offset_t in_block_slot,
-                    BufferPoolManager *buffer_pool_manager)
+                    BufferPoolManager *buffer_pool_manager,page_id_t* page_id_array,size_t page_id_array_size)
         : block_slot_(block_slot),
           in_block_slot_(in_block_slot),
           origin_block_slot_(block_slot),
           origin_in_block_slot_(in_block_slot),
+          page_id_array_(page_id_array),
+          page_id_array_size_(page_id_array_size),
           table_ptr_(table_ptr),
           buffer_pool_manager_(buffer_pool_manager) {
-      block_page_ = buffer_pool_manager->FetchPage(table_ptr->GetBlockPageId(block_slot));
+      assert(in_block_slot < BLOCK_ARRAY_SIZE);
+      assert(block_slot < page_id_array_size);
+      block_page_ = buffer_pool_manager->FetchPage(page_id_array_[block_slot]);
+      block_page_->RLatch();
       block_ = reinterpret_cast<HASH_TABLE_BLOCK_TYPE*>(block_page_->GetData());
     }
     // call it before modifying the page
@@ -114,7 +119,6 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
       block_page_->RLatch();
     }
     HASH_TABLE_BLOCK_TYPE* operator*() {
-      block_page_->RLatch();
       return block_;
     }
     ~Cursor() {
@@ -122,21 +126,22 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
       block_page_->RUnlatch();
     }
     bool IsEnd() {
-      return has_stepped && block_slot_ == origin_block_slot_ && in_block_slot_ == origin_in_block_slot_;
+      return has_stepped_ && block_slot_ == origin_block_slot_ && in_block_slot_ == origin_in_block_slot_;
     }
     void Step() {
-      has_stepped = true;
+      has_stepped_ = true;
       if (in_block_slot_ < BLOCK_ARRAY_SIZE - 1) {
         in_block_slot_++;
       } else {
         // switch to next block
         block_slot_++;
+        if (block_slot_ == page_id_array_size_) block_slot_ = 0;
         in_block_slot_ = 0;
         if (IsEnd()) return;
         // release the last page
         block_page_->RUnlatch();
         buffer_pool_manager_->UnpinPage(block_page_->GetPageId(), false);
-        auto block_page_id = table_ptr_->GetBlockPageId(block_slot_);
+        auto block_page_id = page_id_array_[block_slot_];
         block_page_ = buffer_pool_manager_->FetchPage(block_page_id);
         block_page_->RLatch();
         block_ = reinterpret_cast<HashTableBlockPage<KeyType, ValueType, KeyComparator> *>(block_page_->GetData());
@@ -149,19 +154,17 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
     slot_offset_t in_block_slot_;
     slot_offset_t origin_block_slot_;
     slot_offset_t origin_in_block_slot_;
+    page_id_t* page_id_array_;
+    size_t page_id_array_size_;
     HASH_TABLE_TYPE *table_ptr_;
     BufferPoolManager *buffer_pool_manager_;
     Page *block_page_{};
     HASH_TABLE_BLOCK_TYPE *block_{};
-    bool has_stepped = false;
+    bool has_stepped_ = false;
   };
   // helper function;
 
-  std::pair<slot_offset_t, slot_offset_t> CalculateOffset(const KeyType &key);
-
-  // wrapper of header' GetBlockPageId
-  // protected by table_latch_
-  page_id_t GetBlockPageId(slot_offset_t index);
+  std::pair<slot_offset_t, slot_offset_t> CalculateOffset(const KeyType &key,size_t buckets_num);
 
   // member variable
   page_id_t header_page_id_;

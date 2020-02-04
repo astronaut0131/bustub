@@ -14,7 +14,7 @@
 
 #include <cstring>
 #include <iostream>
-
+#include "common/logger.h"
 #include "common/config.h"
 #include "common/rwlatch.h"
 
@@ -56,10 +56,16 @@ class Page {
   inline void WUnlatch() { rwlatch_.WUnlock(); }
 
   /** Acquire the page read latch. */
-  inline void RLatch() { rwlatch_.RLock(); }
+  inline void RLatch() {
+    //LOG_INFO("Read Lock %d\n",GetPageId());
+    rwlatch_.RLock();
+  }
 
   /** Release the page read latch. */
-  inline void RUnlatch() { rwlatch_.RUnlock(); }
+  inline void RUnlatch() {
+    //LOG_INFO("Read UnLock %d\n",GetPageId());
+    rwlatch_.RUnlock();
+  }
 
   /** @return the page LSN. */
   inline lsn_t GetLSN() { return *reinterpret_cast<lsn_t *>(GetData() + OFFSET_LSN); }

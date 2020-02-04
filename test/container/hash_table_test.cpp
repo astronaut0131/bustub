@@ -26,7 +26,6 @@ TEST(HashTableTest, SampleTest) {
   auto *bpm = new BufferPoolManager(50, disk_manager);
 
   LinearProbeHashTable<int, int, IntComparator> ht("blah", bpm, IntComparator(), 1000, HashFunction<int>());
-
   // insert a few values
   for (int i = 0; i < 5; i++) {
     ht.Insert(nullptr, i, i);
@@ -79,6 +78,9 @@ TEST(HashTableTest, SampleTest) {
   for (int i = 0; i < 5; i++) {
     EXPECT_TRUE(ht.Remove(nullptr, i, i));
     std::vector<int> res;
+    if (i == 1) {
+      ;
+    }
     ht.GetValue(nullptr, i, &res);
     if (i == 0) {
       // (0, 0) is the only pair with key 0
@@ -98,10 +100,65 @@ TEST(HashTableTest, SampleTest) {
       EXPECT_TRUE(ht.Remove(nullptr, i, 2 * i));
     }
   }
+
+  // scale test
+  int scale = 10000;
+  for (int i = 0; i < scale; i++) {
+    //LOG_INFO("insert %d\n",i);
+    auto ret = ht.Insert(nullptr,i,i);
+    EXPECT_EQ(ret,true);
+  }
+
+  for (int i = 0; i < scale; i++) {
+    std::vector<int> res;
+    ht.GetValue(nullptr,i,&res);
+    EXPECT_EQ(res.size(),1);
+    EXPECT_EQ(res[0],i);
+  }
+
+  for (int i = 0; i < scale; i++) {
+    EXPECT_TRUE(ht.Remove(nullptr,i,i));
+  }
   disk_manager->ShutDown();
   remove("test.db");
   delete disk_manager;
   delete bpm;
+}
+
+TEST(HashTableTest, ConcurrentTest) {
+  auto *disk_manager = new DiskManager("test.db");
+  auto *bpm = new BufferPoolManager(50, disk_manager);
+  LinearProbeHashTable<int, int, IntComparator> ht("blah", bpm, IntComparator(), 1000, HashFunction<int>());
+  int num_threads = 1000;
+  vector<std::thread> threads;
+  for (int tid = 0; tid < num_threads; tid++) {
+    threads.push_back(std::thread([tid,&ht]() {
+      ht.Insert(nullptr,tid,tid);
+    }));
+  }
+  for (int tid = 0; tid < num_threads; tid++) {
+    threads[tid].join();
+  }
+  for (int tid = 0; tid < num_threads; tid++) {
+    vector<int> res;
+    ht.GetValue(nullptr,tid,&res);
+    EXPECT_EQ(res.size(),1);
+    EXPECT_EQ(res[0],tid);
+  }
+  threads.clear();
+  for (int tid = 0; tid < num_threads; tid++) {
+    threads.push_back(std::thread([tid,&ht]() {
+      ht.Remove(nullptr,tid,tid);
+    }));
+  }
+  for (int tid = 0; tid < num_threads; tid++) {
+    threads[tid].join();
+  }
+  for (int tid = 0; tid < num_threads; tid++) {
+    vector<int> res;
+    ht.GetValue(nullptr,tid,&res);
+    EXPECT_EQ(res.size(),0);
+  }
 }
 
 }  // namespace bustub

@@ -83,12 +83,13 @@ class HashTableHeaderPage {
    * @return the page_id for the block.
    */
   page_id_t GetBlockPageId(size_t index);
-
+  void SetBlockPageId(size_t index,page_id_t page_id) { block_page_ids_[index] = page_id; }
   /**
    * @return the number of blocks currently stored in the header page
    */
   size_t NumBlocks();
-
+  void SetNextIndex(size_t next_index) { next_ind_ = next_index; }
+  page_id_t* GetBlockPageIds() { return block_page_ids_; }
  private:
   inline size_t MaxNumBlocks() { return (PAGE_SIZE - sizeof(HashTableHeaderPage))/ sizeof(page_id_t); }
   __attribute__((unused)) lsn_t lsn_;

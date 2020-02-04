@@ -27,28 +27,57 @@ ValueType HASH_TABLE_BLOCK_TYPE::ValueAt(slot_offset_t bucket_ind) const {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BLOCK_TYPE::Insert(slot_offset_t bucket_ind, const KeyType &key, const ValueType &value) {
-  if (occupied_[bucket_ind].exchange(1)) {
+  if (IsOccupied(bucket_ind) && IsReadable(bucket_ind)) {
     return false;
   }
+  SetOccupied(bucket_ind,true);
+  SetReadable(bucket_ind,true);
   array_[bucket_ind] = std::make_pair(key,value);
-  readable_[bucket_ind] = 1;
   return true;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_BLOCK_TYPE::Remove(slot_offset_t bucket_ind) {
   // just mark it as a tombstone
-  readable_[bucket_ind] = 0;
+  SetReadable(bucket_ind,false);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BLOCK_TYPE::IsOccupied(slot_offset_t bucket_ind) const {
-  return occupied_[bucket_ind].load();
+  return GetBit(occupied_,bucket_ind);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BLOCK_TYPE::IsReadable(slot_offset_t bucket_ind) const {
-  return readable_[bucket_ind].load();
+  return GetBit(readable_,bucket_ind);
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+bool HASH_TABLE_BLOCK_TYPE::GetBit(std::atomic_char *array,slot_offset_t index) const{
+  auto slot = index/8;
+  auto bit = index%8;
+  char x = array[slot].load();
+  return (x >> bit)&1UL;
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void HASH_TABLE_BLOCK_TYPE::SetBit(std::atomic_char *array,slot_offset_t index,bool val) {
+  auto slot = index/8;
+  auto bit = index%8;
+  char x = array[slot].load();
+  if(val) x |= (1 << bit);
+  else x &= ~(1 << bit);
+  array[slot].store(x);
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void HASH_TABLE_BLOCK_TYPE::SetOccupied(slot_offset_t index, bool val) {
+  SetBit(occupied_,index,val);
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void HASH_TABLE_BLOCK_TYPE::SetReadable(slot_offset_t index, bool val) {
+  SetBit(readable_,index,val);
 }
 
 // DO NOT REMOVE ANYTHING BELOW THIS LINE

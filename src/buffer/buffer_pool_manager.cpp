@@ -66,6 +66,8 @@ Page *BufferPoolManager::FetchPageImpl(page_id_t page_id) {
   // update page metadata
   victim_page_ptr->page_id_ = page_id;
   victim_page_ptr->pin_count_ = 1;
+  // metadata changed
+  victim_page_ptr->is_dirty_ = true;
   replacer_->Pin(victim_frame_id);
   disk_manager_->ReadPage(page_id,victim_page_ptr->data_);
   return victim_page_ptr;
@@ -87,6 +89,7 @@ bool BufferPoolManager::FlushPageImpl(page_id_t page_id) {
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) return false;
   disk_manager_->WritePage(page_id,pages_[it->second].GetData());
+  pages_[it->second].is_dirty_ = false;
   return true;
 }
 
@@ -106,7 +109,8 @@ Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
   if (target_page.IsDirty()) disk_manager_->WritePage(target_page.GetPageId(),target_page.GetData());
   // update metadata and zero out memory
   target_page.pin_count_ = 1;
-  target_page.is_dirty_ = false;
+  // new page should be marked as dirty since its metadata has changed
+  target_page.is_dirty_ = true;
   target_page.ResetMemory();
   // remove old page table entry
   auto it = page_table_.find(target_page.GetPageId());
@@ -129,13 +133,14 @@ bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) return true;
   auto& page = pages_[it->second];
+  frame_id_t frame_id = it->second;
   if (page.pin_count_ > 0) return false;
   page_table_.erase(it);
-  disk_manager_->DeallocatePage(page.page_id_);
   page.page_id_ = INVALID_PAGE_ID;
   page.pin_count_ = 0;
   page.is_dirty_ = false;
-  free_list_.emplace_back(static_cast<int>(it->second));
+  disk_manager_->DeallocatePage(page.page_id_);
+  free_list_.push_back(frame_id);
   return true;
 }
 
