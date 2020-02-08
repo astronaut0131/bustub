@@ -22,7 +22,7 @@
 namespace bustub {
 
 // NOLINTNEXTLINE
-TEST(CatalogTest, DISABLED_CreateTableTest) {
+TEST(CatalogTest, CreateTableTest) {
   auto disk_manager = new DiskManager("catalog_test.db");
   auto bpm = new BufferPoolManager(32, disk_manager);
   auto catalog = new SimpleCatalog(bpm, nullptr, nullptr);
@@ -42,7 +42,15 @@ TEST(CatalogTest, DISABLED_CreateTableTest) {
 
   // Notice that this test case doesn't check anything! :(
   // It is up to you to extend it
+  auto ret = catalog->GetTable(table_name);
+  (void)ret;
+  EXPECT_EQ(ret,table_metadata);
 
+  auto ret_columns = table_metadata->schema_.GetColumns();
+  EXPECT_EQ(columns.size(),ret_columns.size());
+  for (size_t i = 0; i < columns.size(); i++) {
+    EXPECT_EQ(columns[i].GetName(),ret_columns[i].GetName());
+  }
   delete catalog;
   delete bpm;
   delete disk_manager;

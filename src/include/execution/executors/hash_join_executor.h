@@ -97,16 +97,59 @@ class HashJoinExecutor : public AbstractExecutor {
    */
   HashJoinExecutor(ExecutorContext *exec_ctx, const HashJoinPlanNode *plan, std::unique_ptr<AbstractExecutor> &&left,
                    std::unique_ptr<AbstractExecutor> &&right)
-      : AbstractExecutor(exec_ctx) {}
+      : AbstractExecutor(exec_ctx),plan_(plan),jht_("",this->exec_ctx_->GetBufferPoolManager(),jht_comp_,jht_num_buckets_,jht_hash_fn_),left_(std::move(left)),right_(std::move(right)) {}
 
   /** @return the JHT in use. Do not modify this function, otherwise you will get a zero. */
   // Uncomment me! const HT *GetJHT() const { return &jht_; }
 
   const Schema *GetOutputSchema() override { return plan_->OutputSchema(); }
 
-  void Init() override {}
+  void Init() override {
+    // get exprs to evaluate to output result
+    auto output_column_cnt = GetOutputSchema()->GetColumnCount();
+    output_exprs_.resize(output_column_cnt);
+    for (size_t i = 0; i < output_column_cnt; i++) {
+      output_exprs_[i] = GetOutputSchema()->GetColumn(i).GetExpr();
+    }
+    // build hash table from left
+    left_->Init();
+    right_->Init();
+    left_expr_ = plan_->Predicate()->GetChildAt(0);
+    right_expr_ = plan_->Predicate()->GetChildAt(1);
+    vector<const AbstractExpression*> exprs{left_expr_};
+    Tuple tuple;
+    while (left_->Next(&tuple)) {
+      auto hash = HashValues(&tuple,left_->GetOutputSchema(),exprs);
+      jht_.Insert(exec_ctx_->GetTransaction(),hash,tuple);
+    }
+  }
 
-  bool Next(Tuple *tuple) override { return false; }
+  bool Next(Tuple *tuple) override {
+    vector<const AbstractExpression*> exprs{right_expr_};
+    // tuple from right
+    Tuple tmp;
+    size_t output_column_cnt = output_exprs_.size();
+    while (1) {
+      if (index_ == tuples_.size()) {
+        // all tuple in tuples has been used, fetch new tuples
+        index_ = 0;
+        tuples_.clear();
+        if (!right_->Next(&tmp)) return false;
+        auto hash = HashValues(&tmp, right_->GetOutputSchema(), exprs);
+        jht_.GetValue(exec_ctx_->GetTransaction(), hash, &tuples_);
+      }
+      while (!plan_->Predicate()->EvaluateJoin(&tuples_[index_],left_->GetOutputSchema(),&tmp,right_->GetOutputSchema()).GetAs<bool>() && index_ < tuples_.size()) index_++;
+      if (index_ < tuples_.size()) {
+        vector<Value> values( output_column_cnt);
+        for (size_t i = 0; i < output_column_cnt; i++) {
+          values[i] = output_exprs_[i]->EvaluateJoin(&tuples_[index_],left_->GetOutputSchema(),&tmp,right_->GetOutputSchema());
+        }
+        *tuple = Tuple(values,GetOutputSchema());
+        index_++;
+        return true;
+      }
+    }
+  }
 
   /**
    * Hashes a tuple by evaluating it against every expression on the given schema, combining all non-null hashes.
@@ -139,8 +182,15 @@ class HashJoinExecutor : public AbstractExecutor {
   IdentityHashFunction jht_hash_fn_{};
 
   /** The hash table that we are using. */
-  // Uncomment me! HT jht_;
+  HT jht_;
   /** The number of buckets in the hash table. */
   static constexpr uint32_t jht_num_buckets_ = 2;
+  std::unique_ptr<AbstractExecutor> left_;
+  std::unique_ptr<AbstractExecutor> right_;
+  const AbstractExpression* left_expr_;
+  const AbstractExpression* right_expr_;
+  vector<Tuple> tuples_;
+  size_t index_ = 0;
+  vector<const AbstractExpression*> output_exprs_;
 };
 }  // namespace bustub
