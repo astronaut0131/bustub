@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "murmur3/MurmurHash3.h"
+#include "common/util/hash_util.h"
 
 namespace bustub {
 
@@ -32,5 +33,10 @@ class HashFunction {
     return hash[0];
   }
 };
-
+// HashFunction partial template Value
+template <>
+class HashFunction<Value>{
+ public:
+  virtual uint64_t GetHash(Value key) { return HashUtil::HashValue(&key); }
+};
 }  // namespace bustub

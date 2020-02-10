@@ -87,5 +87,5 @@ template class HashTableBlockPage<GenericKey<8>, RID, GenericComparator<8>>;
 template class HashTableBlockPage<GenericKey<16>, RID, GenericComparator<16>>;
 template class HashTableBlockPage<GenericKey<32>, RID, GenericComparator<32>>;
 template class HashTableBlockPage<GenericKey<64>, RID, GenericComparator<64>>;
-
+template class HashTableBlockPage<Value,Tuple,ValueComparator>;
 }  // namespace bustub

@@ -20,14 +20,40 @@ namespace bustub {
  */
 class TmpTuplePage : public Page {
  public:
-  void Init(page_id_t page_id, uint32_t page_size) {}
+  // similar code learned from table_page.h/cpp  :)
+  void Init(page_id_t page_id, uint32_t page_size) {
+    SetPageId(page_id);
+    SetFreeSpacePointer(page_size);
+  }
 
-  page_id_t GetTablePageId() { return INVALID_PAGE_ID; }
+  page_id_t GetTablePageId() { return *reinterpret_cast<page_id_t *>(GetData()); }
 
-  bool Insert(const Tuple &tuple, TmpTuple *out) { return false; }
+  bool Insert(const Tuple &tuple, TmpTuple *out) {
+    auto free_size = GetFreeSpacePointer();
+    size_t need_size = sizeof(uint32_t) + tuple.GetLength();
+    if (free_size < need_size) return false;
+    free_size -= need_size;
+    SetFreeSpacePointer(free_size);
+    auto addr = GetNextPosToInsert();
+    uint32_t size = tuple.GetLength();
+    memcpy(addr,&size,sizeof(size));
+    auto data = tuple.GetData();
+    memcpy(addr+sizeof(size),data,tuple.GetLength());
+    *out = TmpTuple(GetTablePageId(),GetOffset());
+    return true;
+  }
+
+  void Get(Tuple *tuple, size_t offset) {
+    tuple->DeserializeFrom(GetData()+offset);
+  }
 
  private:
   static_assert(sizeof(page_id_t) == 4);
+  inline void SetPageId(page_id_t page_id) { memcpy(GetData(),&page_id,sizeof(page_id)); }
+  inline uint32_t GetFreeSpacePointer() { return *reinterpret_cast<uint32_t *>(GetData()+sizeof(page_id_t)+sizeof(lsn_t)); }
+  inline void SetFreeSpacePointer(uint32_t size) { memcpy(GetData()+sizeof(page_id_t)+sizeof(lsn_t),&size,sizeof(uint32_t)); }
+  inline char* GetNextPosToInsert() { return GetData() + GetFreeSpacePointer(); }
+  inline size_t GetOffset() { return GetFreeSpacePointer(); }
 };
 
 }  // namespace bustub

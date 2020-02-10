@@ -102,5 +102,16 @@ class GenericComparator {
  private:
   Schema *key_schema_;
 };
-
+class ValueComparator{
+ public:
+  inline int operator()(const Value &lhs, const Value &rhs) const {
+    if (lhs.CompareLessThan(rhs) == CmpBool::CmpTrue) {
+      return -1;
+    }
+    if (lhs.CompareGreaterThan(rhs) == CmpBool::CmpTrue) {
+      return 1;
+    }
+    return 0;
+  }
+};
 }  // namespace bustub

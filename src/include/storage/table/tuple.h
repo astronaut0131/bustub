@@ -50,6 +50,10 @@ class Tuple {
   // assign operator, deep copy
   Tuple &operator=(const Tuple &other);
 
+  bool operator==(const Tuple &other) {
+  	return size_ == other.GetLength() && memcmp(data_,other.GetData(),size_) == 0;
+  }
+
   ~Tuple() {
     if (allocated_) {
       delete[] data_;
