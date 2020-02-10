@@ -80,7 +80,7 @@ class SimpleHashJoinHashTable {
 // using HT = SimpleHashJoinHashTable;
 
 using HashJoinKeyType = Value;
-using HashJoinValType = Tuple;
+using HashJoinValType = TmpTuple;
 using HT = LinearProbeHashTable<HashJoinKeyType, HashJoinValType, ValueComparator>;
 
 /**
@@ -120,78 +120,71 @@ class HashJoinExecutor : public AbstractExecutor {
     right_->Init();
     left_expr_ = plan_->Predicate()->GetChildAt(0);
     right_expr_ = plan_->Predicate()->GetChildAt(1);
-    Tuple tuple;
-    while (left_->Next(&tuple)) {
-      Value value = left_expr_->Evaluate(&tuple, left_->GetOutputSchema());
-      jht_.Insert(exec_ctx_->GetTransaction(), value, tuple);
+    Tuple left_tuple;
+    // store all the left tuples in tmp pages in that it can not fit in memory
+    // use tmp tuple as the value of the hash table kv pair
+    TmpTuplePage *tmp_page = nullptr;
+    page_id_t tmp_page_id = INVALID_PAGE_ID;
+    TmpTuple tmp_tuple;
+    while (left_->Next(&left_tuple)) {
+      if (!tmp_page || !tmp_page->Insert(left_tuple,&tmp_tuple)) {
+        // unpin the last full tmp page
+        if (tmp_page_id != INVALID_PAGE_ID) exec_ctx_->GetBufferPoolManager()->UnpinPage(tmp_page_id,true);
+        // create new tmp page
+        tmp_page = reinterpret_cast<TmpTuplePage *>(exec_ctx_->GetBufferPoolManager()->NewPage(&tmp_page_id));
+        if (!tmp_page) throw std::runtime_error("fail to create new tmp page when doing hash join");
+        tmp_page->Init(tmp_page_id, PAGE_SIZE);
+        tmp_page_ids_.push_back(tmp_page_id);
+        // reinsert the tuple
+        assert(tmp_page->Insert(left_tuple, &tmp_tuple));
+      }
+      Value value = left_expr_->Evaluate(&left_tuple, left_->GetOutputSchema());
+      jht_.Insert(exec_ctx_->GetTransaction(), value, tmp_tuple);
     }
   }
 
   bool Next(Tuple *tuple) override {
-    if (index_ == tmp_tuples_.size()) {
-      // all the buffered result tuples has been traversed
-      // fetch new ones
-      tmp_tuples_.clear();
-      index_ = 0;
-      Tuple right_tuple;
-      for (auto page_id : tmp_page_ids_) {
-        // delete all the tmp page created by the last right tuple
-        exec_ctx_->GetBufferPoolManager()->DeletePage(page_id);
-      }
-      tmp_page_ids_.clear();
-      if (!right_->Next(&right_tuple)) return false;
-      // get corresponding left tuples
-      vector<Tuple> tuples;
-      auto value = right_expr_->Evaluate(&right_tuple, right_->GetOutputSchema());
-      jht_.GetValue(exec_ctx_->GetTransaction(), value, &tuples);
-      if (tuples.size() == 1) {
-        // if we only find one left tuple, we don't need to create a tmp page to buffered the result
-        auto left_tuple = tuples[0];
-        if (IsValidCombination(left_tuple, right_tuple)) {
-          MakeOutputTuple(tuple, &left_tuple, &right_tuple);
-          return true;
-        }
-      } else {
-        TmpTuplePage *tmp_page = nullptr;
-        page_id_t tmp_page_id = INVALID_PAGE_ID;
-        // buffer all the valid output tuple in tmp pages
-        for (const auto &left_tuple : tuples) {
-          if (IsValidCombination(left_tuple, right_tuple)) {
-            Tuple out_tuple;
-            MakeOutputTuple(&out_tuple, &left_tuple, &right_tuple);
-            TmpTuple tmp_tuple;
-            if (!tmp_page || !tmp_page->Insert(out_tuple, &tmp_tuple)) {
-              // create new tmp page
-              tmp_page = reinterpret_cast<TmpTuplePage *>(exec_ctx_->GetBufferPoolManager()->NewPage(&tmp_page_id));
-              if (!tmp_page) throw std::runtime_error("fail to create new tmp page when doing hash join");
-              tmp_page->Init(tmp_page_id, PAGE_SIZE);
-              tmp_page_ids_.push_back(tmp_page_id);
-              assert(tmp_page->Insert(out_tuple, &tmp_tuple));
-            }
-            tmp_tuples_.push_back(tmp_tuple);
+    while (true) {
+      while (index_ == tmp_tuples_.size()) {
+        // we have traversed all possible join combination of the current right tuple
+        // move to the next right tuple
+        tmp_tuples_.clear();
+        index_ = 0;
+        if (!right_->Next(&right_tuple_)) {
+          // hash join finished, delete all the tmp page we created
+          for (auto tmp_page_id : tmp_page_ids_) {
+            exec_ctx_->GetBufferPoolManager()->DeletePage(tmp_page_id);
           }
+          return false;
         }
+        auto value = right_expr_->Evaluate(&right_tuple_, right_->GetOutputSchema());
+        jht_.GetValue(exec_ctx_->GetTransaction(), value, &tmp_tuples_);
       }
+      // traverse corresponding left tuples stored in the tmp pages util we find one satisfying the predicate with current right tuple
+      auto left_tmp_tuple = tmp_tuples_[index_];
+      Tuple left_tuple;
+      FetchTupleFromTmpTuplePage(&left_tuple, left_tmp_tuple);
+      while (!IsValidCombination(left_tuple, right_tuple_)) {
+        index_++;
+        if (index_ == tmp_tuples_.size()) break;
+        left_tmp_tuple = tmp_tuples_[index_];
+        FetchTupleFromTmpTuplePage(&left_tuple, left_tmp_tuple);
+      }
+      if (index_ < tmp_tuples_.size()) {
+        // valid combination found
+        MakeOutputTuple(tuple,&left_tuple,&right_tuple_);
+        index_++;
+        return true;
+      }
+      // no valid combination, turn to the next right tuple by while loop
     }
-    // there is buffered tuples
-    // just return the next buffered tuple
-    auto tmp_tuple = tmp_tuples_[index_];
-    index_++;
-    auto page_id = tmp_tuple.GetPageId();
-    if (last_page_id_ != INVALID_PAGE_ID && page_id != last_page_id_) {
-      exec_ctx_->GetBufferPoolManager()->UnpinPage(last_page_id_, false);
-    }
-    last_page_id_ = page_id;
-    auto tmp_tuple_page = reinterpret_cast<TmpTuplePage *>(exec_ctx_->GetBufferPoolManager()->FetchPage(page_id));
-    if (!tmp_tuple_page) throw std::runtime_error("fail to fetch buffered tmp page when doing hash join");
-    tmp_tuple_page->Get(tuple, tmp_tuple.GetOffset());
-    if (index_ == tmp_tuples_.size()) {
-      // this is the last tmp tuple in buffer
-      // unpin its page
-      exec_ctx_->GetBufferPoolManager()->UnpinPage(page_id, false);
-      last_page_id_ = INVALID_PAGE_ID;
-    }
-    return true;
+  }
+
+  void FetchTupleFromTmpTuplePage(Tuple* tuple,const TmpTuple& tmp_tuple) {
+    auto tmp_page = reinterpret_cast<TmpTuplePage*>(exec_ctx_->GetBufferPoolManager()->FetchPage(tmp_tuple.GetPageId()));
+    if (!tmp_page) throw std::runtime_error("fail to fetch tmp page when doing hash join");
+    tmp_page->Get(tuple,tmp_tuple.GetOffset());
+    exec_ctx_->GetBufferPoolManager()->UnpinPage(tmp_tuple.GetPageId(),false);
   }
 
   bool IsValidCombination(const Tuple &left_tuple, const Tuple &right_tuple) {
@@ -251,6 +244,6 @@ class HashJoinExecutor : public AbstractExecutor {
   size_t index_ = 0;
   vector<const AbstractExpression *> output_exprs_;
   vector<page_id_t> tmp_page_ids_;
-  page_id_t last_page_id_ = INVALID_PAGE_ID;
+  Tuple right_tuple_;
 };
 }  // namespace bustub

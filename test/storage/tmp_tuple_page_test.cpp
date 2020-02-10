@@ -36,19 +36,19 @@ TEST(TmpTuplePageTest, BasicTest) {
   columns.emplace_back("A", TypeId::INTEGER);
   Schema schema(columns);
 
-  std::vector<Value> values;
-  values.emplace_back(ValueFactory::GetIntegerValue(123));
+  for (int i = 0; i < 600; i++) {
+    std::vector<Value> values;
+    values.emplace_back(ValueFactory::GetIntegerValue(i));
 
-  Tuple tuple(values, &schema);
-  auto origin_size = tuple.GetLength();
-
-  TmpTuple tmp_tuple(INVALID_PAGE_ID, 0);
-  page.Insert(tuple, &tmp_tuple);
-  page.Get(&tuple,tmp_tuple.GetOffset());
-  ASSERT_EQ(*reinterpret_cast<uint32_t *>(data + sizeof(page_id_t) + sizeof(lsn_t)), PAGE_SIZE - 8);
-  ASSERT_EQ(*reinterpret_cast<uint32_t *>(data + PAGE_SIZE - 8), 4);
-  ASSERT_EQ(*reinterpret_cast<uint32_t *>(data + PAGE_SIZE - 4), 123);
-  ASSERT_EQ(tuple.GetLength(),origin_size);
+    Tuple tuple(values, &schema);
+    TmpTuple tmp_tuple(INVALID_PAGE_ID, 0);
+    bool success = page.Insert(tuple, &tmp_tuple);
+    if (success) {
+      page.Get(&tuple, tmp_tuple.GetOffset());
+      ASSERT_EQ(*reinterpret_cast<uint32_t *>(data + sizeof(page_id_t) + sizeof(lsn_t)), PAGE_SIZE - 8 * (i + 1));
+      ASSERT_EQ(tuple.GetValue(&schema, 0).GetAs<int>(), i);
+    }
+  }
 }
 
 }  // namespace bustub

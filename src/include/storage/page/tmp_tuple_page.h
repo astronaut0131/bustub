@@ -29,11 +29,11 @@ class TmpTuplePage : public Page {
   page_id_t GetTablePageId() { return *reinterpret_cast<page_id_t *>(GetData()); }
 
   bool Insert(const Tuple &tuple, TmpTuple *out) {
-    auto free_size = GetFreeSpacePointer();
-    size_t need_size = sizeof(uint32_t) + tuple.GetLength();
-    if (free_size < need_size) return false;
-    free_size -= need_size;
-    SetFreeSpacePointer(free_size);
+    auto free_offset = GetFreeSpacePointer();
+    uint32_t need_size = sizeof(uint32_t) + tuple.GetLength();
+    if (free_offset-need_size < sizeof(page_id_t) + sizeof(lsn_t) + sizeof(uint32_t)) return false;
+    free_offset -= need_size;
+    SetFreeSpacePointer(free_offset);
     auto addr = GetNextPosToInsert();
     uint32_t size = tuple.GetLength();
     memcpy(addr,&size,sizeof(size));
@@ -44,6 +44,7 @@ class TmpTuplePage : public Page {
   }
 
   void Get(Tuple *tuple, size_t offset) {
+    assert(offset >= sizeof(page_id_t) + sizeof(lsn_t) + sizeof(u_int32_t));
     tuple->DeserializeFrom(GetData()+offset);
   }
 

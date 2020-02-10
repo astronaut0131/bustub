@@ -89,6 +89,9 @@ Tuple &Tuple::operator=(const Tuple &other) {
 
 Value Tuple::GetValue(const Schema *schema, const uint32_t column_idx) const {
   assert(schema);
+  if (!data_){
+    ;
+  }
   assert(data_);
   const TypeId column_type = schema->GetColumn(column_idx).GetType();
   const char *data_ptr = GetDataPtr(schema, column_idx);
