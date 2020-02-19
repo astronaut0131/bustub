@@ -37,12 +37,15 @@ class LogManager {
   ~LogManager() {
     delete[] log_buffer_;
     delete[] flush_buffer_;
+    if (thread_created) delete flush_thread_;
     log_buffer_ = nullptr;
     flush_buffer_ = nullptr;
+    flush_thread_ = nullptr;
   }
 
   void RunFlushThread();
   void StopFlushThread();
+  void TriggerFlush();
 
   lsn_t AppendLogRecord(LogRecord *log_record);
 
@@ -53,21 +56,27 @@ class LogManager {
 
  private:
   // TODO(students): you may add your own member variables
-
+  void Flush();
+  void SwapBuffer();
   /** The atomic counter which records the next log sequence number. */
   std::atomic<lsn_t> next_lsn_;
   /** The log records before and including the persistent lsn have been written to disk. */
   std::atomic<lsn_t> persistent_lsn_;
-
+  /** The last log record's lsn in the flush buffer. */
+  std::atomic<lsn_t> last_lsn_in_flush_buffer_;
   char *log_buffer_;
   char *flush_buffer_;
-
-  std::mutex latch_;
+  std::atomic<size_t> log_buffer_len_{0};
+  std::atomic<size_t> flush_buffer_len_{0};
+  std::recursive_mutex latch_;
 
   std::thread *flush_thread_ __attribute__((__unused__));
 
   std::condition_variable cv_;
-
+  std::mutex cv_mutex_;
+  bool flush_finished_ = false;
+  bool flush_start_ = false;
+  bool thread_created = false;
   DiskManager *disk_manager_ __attribute__((__unused__));
 };
 

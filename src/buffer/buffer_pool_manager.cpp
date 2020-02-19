@@ -59,7 +59,13 @@ Page *BufferPoolManager::FetchPageImpl(page_id_t page_id) {
   }
   auto victim_page_ptr = &pages_[victim_frame_id];
   // write back page content if it is dirty
-  if (victim_page_ptr->IsDirty()) disk_manager_->WritePage(victim_page_ptr->GetPageId(),victim_page_ptr->GetData());
+  if (victim_page_ptr->IsDirty()){
+    // need to flush all logs up to pageLSN because of the Write Ahead Logging scheme
+    while(victim_page_ptr->GetLSN() > log_manager_->GetPersistentLSN()) {
+      log_manager_->TriggerFlush();
+    }
+    disk_manager_->WritePage(victim_page_ptr->GetPageId(),victim_page_ptr->GetData());
+  }
   // update page table
   page_table_.erase(victim_page_ptr->GetPageId());
   page_table_.insert({page_id,victim_frame_id});
@@ -88,8 +94,16 @@ bool BufferPoolManager::FlushPageImpl(page_id_t page_id) {
   std::lock_guard<std::mutex> guard(latch_);
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) return false;
-  disk_manager_->WritePage(page_id,pages_[it->second].GetData());
-  pages_[it->second].is_dirty_ = false;
+  auto& page = pages_[it->second];
+  if (page.IsDirty()) {
+    if (bustub::enable_logging) {
+      while (page.GetLSN() > log_manager_->GetPersistentLSN()) {
+        log_manager_->TriggerFlush();
+      }
+    }
+    disk_manager_->WritePage(page_id, page.GetData());
+    page.is_dirty_ = false;
+  }
   return true;
 }
 
@@ -106,7 +120,13 @@ Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
     free_list_.pop_front();
   } else if (!replacer_->Victim(&target_frame_id)) return nullptr;
   auto& target_page = pages_[target_frame_id];
-  if (target_page.IsDirty()) disk_manager_->WritePage(target_page.GetPageId(),target_page.GetData());
+  if (target_page.IsDirty()) {
+    // need to flush all logs up to pageLSN because of the Write Ahead Logging scheme
+    while(target_page.GetLSN() > log_manager_->GetPersistentLSN()) {
+      log_manager_->TriggerFlush();
+    }
+    disk_manager_->WritePage(target_page.GetPageId(),target_page.GetData());
+  }
   // update metadata and zero out memory
   target_page.pin_count_ = 1;
   // new page should be marked as dirty since its metadata has changed
@@ -118,7 +138,10 @@ Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
   *page_id = target_page.page_id_ = disk_manager_->AllocatePage();
   // pin it
   replacer_->Pin(target_frame_id);
-  // add new entry
+  it = page_table_.find(*page_id);
+  // if there is already an entry with the newly created page id, erase it from the page table
+  // demand by project#4
+  if (it != page_table_.end()) page_table_.erase(it);
   page_table_.emplace(std::make_pair(*page_id,target_frame_id));
   return &target_page;
 }
@@ -147,8 +170,17 @@ bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {
 void BufferPoolManager::FlushAllPagesImpl() {
   // You can do it!
   std::lock_guard<std::mutex> guard(latch_);
-  for (auto pair:page_table_) {
-    disk_manager_->WritePage(pair.first,pages_[pair.second].GetData());
+  for (const auto& pair:page_table_) {
+    auto& page = pages_[pair.second];
+    if (page.IsDirty()) {
+      if (bustub::enable_logging) {
+        while (page.GetLSN() > log_manager_->GetPersistentLSN()) {
+          log_manager_->TriggerFlush();
+        }
+      }
+      disk_manager_->WritePage(pair.first, page.GetData());
+      page.is_dirty_ = false;
+    }
   }
 }
 

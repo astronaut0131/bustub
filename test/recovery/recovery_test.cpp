@@ -27,7 +27,7 @@
 namespace bustub {
 
 // NOLINTNEXTLINE
-TEST(RecoveryTest, DISABLED_RedoTest) {
+TEST(RecoveryTest, RedoTest) {
   remove("test.db");
   remove("test.log");
 
@@ -122,7 +122,7 @@ TEST(RecoveryTest, DISABLED_RedoTest) {
 }
 
 // NOLINTNEXTLINE
-TEST(RecoveryTest, DISABLED_UndoTest) {
+TEST(RecoveryTest, UndoTest) {
   remove("test.db");
   remove("test.log");
   BustubInstance *bustub_instance = new BustubInstance("test.db");
@@ -206,7 +206,7 @@ TEST(RecoveryTest, DISABLED_UndoTest) {
 }
 
 // NOLINTNEXTLINE
-TEST(RecoveryTest, DISABLED_CheckpointTest) {
+TEST(RecoveryTest, CheckpointTest) {
   remove("test.db");
   remove("test.log");
   BustubInstance *bustub_instance = new BustubInstance("test.db");

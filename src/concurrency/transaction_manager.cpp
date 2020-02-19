@@ -30,7 +30,9 @@ Transaction *TransactionManager::Begin(Transaction *txn) {
   }
 
   if (enable_logging) {
-    // TODO(student): Add logging here.
+    LogRecord record(txn->GetTransactionId(),INVALID_LSN,LogRecordType::BEGIN);
+    lsn_t lsn = log_manager_->AppendLogRecord(&record);
+    txn->SetPrevLSN(lsn);
   }
 
   txn_map[txn->GetTransactionId()] = txn;
@@ -55,6 +57,13 @@ void TransactionManager::Commit(Transaction *txn) {
 
   if (enable_logging) {
     // TODO(student): add logging here
+    // make sure all the update log record on the disk
+    LogRecord record(txn->GetTransactionId(),txn->GetPrevLSN(),LogRecordType::COMMIT);
+    lsn_t lsn = log_manager_->AppendLogRecord(&record);
+    txn->SetPrevLSN(lsn);
+    while (lsn > log_manager_->GetPersistentLSN()) {
+      std::this_thread::sleep_for(bustub::log_timeout);
+    }
   }
 
   // Release all the locks.
@@ -84,7 +93,11 @@ void TransactionManager::Abort(Transaction *txn) {
   write_set->clear();
 
   if (enable_logging) {
-    // TODO(student): add logging here
+    // make sure all the update log record on the disk
+    LogRecord record(txn->GetTransactionId(),txn->GetPrevLSN(),LogRecordType::ABORT);
+    lsn_t lsn = log_manager_->AppendLogRecord(&record);
+    txn->SetPrevLSN(lsn);
+    // immediately return to the application when we abort
   }
 
   // Release all the locks.
